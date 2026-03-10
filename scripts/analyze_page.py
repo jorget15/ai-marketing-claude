@@ -15,6 +15,16 @@ from html.parser import HTMLParser
 from urllib.parse import urlparse, urljoin
 
 
+def build_ssl_context(allow_insecure=False):
+    """Create a TLS context; insecure mode is opt-in for troubleshooting only."""
+    if allow_insecure:
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
+    return ssl.create_default_context()
+
+
 class MarketingPageParser(HTMLParser):
     """Parse HTML and extract marketing-relevant elements."""
 
@@ -301,11 +311,9 @@ class MarketingPageParser(HTMLParser):
         }
 
 
-def fetch_page(url):
+def fetch_page(url, allow_insecure=False):
     """Fetch a webpage and return its HTML content."""
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
+    ctx = build_ssl_context(allow_insecure)
 
     headers = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -317,47 +325,45 @@ def fetch_page(url):
     try:
         response = urllib.request.urlopen(req, timeout=15, context=ctx)
         return response.read().decode("utf-8", errors="replace")
-    except urllib.error.HTTPError as e:
+    except urllib.error.HTTPError:
         return None
-    except Exception as e:
+    except urllib.error.URLError:
         return None
 
 
-def fetch_robots_txt(url):
+def fetch_robots_txt(url, allow_insecure=False):
     """Fetch and parse robots.txt."""
     parsed = urlparse(url)
     robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
-    content = fetch_page(robots_url)
+    content = fetch_page(robots_url, allow_insecure=allow_insecure)
     if content:
         has_sitemap = "sitemap:" in content.lower()
         return {"exists": True, "has_sitemap_reference": has_sitemap, "content_preview": content[:500]}
     return {"exists": False}
 
 
-def fetch_sitemap(url):
+def fetch_sitemap(url, allow_insecure=False):
     """Check if sitemap.xml exists."""
     parsed = urlparse(url)
     sitemap_url = f"{parsed.scheme}://{parsed.netloc}/sitemap.xml"
     try:
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
+        ctx = build_ssl_context(allow_insecure)
         req = urllib.request.Request(sitemap_url, headers={"User-Agent": "MarketingBot/1.0"})
         response = urllib.request.urlopen(req, timeout=10, context=ctx)
         content = response.read().decode("utf-8", errors="replace")
         # Count URLs in sitemap
         url_count = content.lower().count("<url>") or content.lower().count("<loc>")
         return {"exists": True, "url_count": url_count}
-    except:
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, ssl.SSLError):
         return {"exists": False, "url_count": 0}
 
 
-def analyze(url):
+def analyze(url, allow_insecure=False):
     """Run full marketing analysis on a URL."""
     results = {"url": url, "status": "success"}
 
     # Fetch and parse main page
-    html = fetch_page(url)
+    html = fetch_page(url, allow_insecure=allow_insecure)
     if not html:
         return {"url": url, "status": "error", "message": "Could not fetch page"}
 
@@ -384,8 +390,8 @@ def analyze(url):
     page_results["technical"]["external_links"] = external
 
     # Check robots.txt and sitemap
-    page_results["robots"] = fetch_robots_txt(url)
-    page_results["sitemap"] = fetch_sitemap(url)
+    page_results["robots"] = fetch_robots_txt(url, allow_insecure=allow_insecure)
+    page_results["sitemap"] = fetch_sitemap(url, allow_insecure=allow_insecure)
 
     # Generate marketing scores
     scores = {}
@@ -457,17 +463,23 @@ def main():
     if len(sys.argv) < 2:
         # Demo mode
         print(json.dumps({
-            "usage": "python3 analyze_page.py <url>",
+            "usage": "python3 analyze_page.py <url> [--insecure]",
             "example": "python3 analyze_page.py https://calendly.com",
             "description": "Analyzes a webpage for marketing effectiveness"
         }, indent=2))
         return
 
-    url = sys.argv[1]
+    args = sys.argv[1:]
+    allow_insecure = "--insecure" in args
+    url = next((a for a in args if not a.startswith("-")), "")
+    if not url:
+        print(json.dumps({"status": "error", "message": "Missing URL argument"}, indent=2))
+        return
+
     if not url.startswith("http"):
         url = "https://" + url
 
-    results = analyze(url)
+    results = analyze(url, allow_insecure=allow_insecure)
     print(json.dumps(results, indent=2, default=str))
 
 

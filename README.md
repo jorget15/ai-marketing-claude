@@ -34,13 +34,7 @@ Full report saved to MARKETING-AUDIT.md
 
 ## Installation
 
-### One-Command Install
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/zubair-trabzada/ai-marketing-claude/main/install.sh | bash
-```
-
-### Manual Install
+### Recommended Install (Safer)
 
 ```bash
 git clone https://github.com/zubair-trabzada/ai-marketing-claude.git
@@ -48,11 +42,25 @@ cd ai-marketing-claude
 ./install.sh
 ```
 
+### One-Command Install (Use Only If You Trust The Source)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/zubair-trabzada/ai-marketing-claude/main/install.sh | bash
+```
+
+Reviewing scripts before execution is recommended for production environments.
+
 ### Optional: PDF Report Support
 
 ```bash
 pip install reportlab
 ```
+
+### Security Notes
+
+- Python scanners now verify TLS certificates by default.
+- `--insecure` is available only for troubleshooting environments with broken certificates.
+- Avoid `--insecure` in production or client-facing workflows.
 
 ---
 

@@ -15,6 +15,16 @@ from html.parser import HTMLParser
 from urllib.parse import urlparse
 
 
+def build_ssl_context(allow_insecure=False):
+    """Create a TLS context; insecure mode is opt-in for troubleshooting only."""
+    if allow_insecure:
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
+    return ssl.create_default_context()
+
+
 class CompetitorPageParser(HTMLParser):
     """Parse competitor page for positioning data."""
 
@@ -172,11 +182,9 @@ class CompetitorPageParser(HTMLParser):
         }
 
 
-def fetch_page(url):
+def fetch_page(url, allow_insecure=False):
     """Fetch a webpage."""
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
+    ctx = build_ssl_context(allow_insecure)
 
     headers = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
@@ -187,11 +195,11 @@ def fetch_page(url):
     try:
         response = urllib.request.urlopen(req, timeout=15, context=ctx)
         return response.read().decode("utf-8", errors="replace")
-    except:
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, ssl.SSLError):
         return None
 
 
-def scan_competitor(url):
+def scan_competitor(url, allow_insecure=False):
     """Scan a competitor website."""
     if not url.startswith("http"):
         url = "https://" + url
@@ -205,7 +213,7 @@ def scan_competitor(url):
         "status": "success"
     }
 
-    html = fetch_page(url)
+    html = fetch_page(url, allow_insecure=allow_insecure)
     if not html:
         result["status"] = "error"
         result["message"] = "Could not fetch page"
@@ -214,7 +222,7 @@ def scan_competitor(url):
     parser = CompetitorPageParser()
     try:
         parser.feed(html)
-    except:
+    except Exception:
         result["status"] = "error"
         result["message"] = "Could not parse page"
         return result
@@ -229,7 +237,7 @@ def scan_competitor(url):
     ]
 
     for pricing_url in pricing_urls:
-        pricing_html = fetch_page(pricing_url)
+        pricing_html = fetch_page(pricing_url, allow_insecure=allow_insecure)
         if pricing_html and len(pricing_html) > 1000:
             pricing_parser = CompetitorPageParser()
             try:
@@ -241,7 +249,7 @@ def scan_competitor(url):
                     "pricing_mentions": pricing_data["pricing"]["pricing_mentions"],
                     "sections": pricing_data["positioning"]["key_sections"]
                 }
-            except:
+            except Exception:
                 pass
             break
     else:
@@ -250,11 +258,11 @@ def scan_competitor(url):
     return result
 
 
-def scan_multiple(urls):
+def scan_multiple(urls, allow_insecure=False):
     """Scan multiple competitor URLs."""
     results = []
     for url in urls:
-        result = scan_competitor(url)
+        result = scan_competitor(url, allow_insecure=allow_insecure)
         results.append(result)
     return results
 
@@ -262,18 +270,24 @@ def scan_multiple(urls):
 def main():
     if len(sys.argv) < 2:
         print(json.dumps({
-            "usage": "python3 competitor_scanner.py <url1> [url2] [url3] ...",
+            "usage": "python3 competitor_scanner.py <url1> [url2] [url3] ... [--insecure]",
             "example": "python3 competitor_scanner.py calendly.com acuityscheduling.com doodle.com",
             "description": "Scans competitor websites for positioning, pricing, and trust signals"
         }, indent=2))
         return
 
-    urls = sys.argv[1:]
+    args = sys.argv[1:]
+    allow_insecure = "--insecure" in args
+    urls = [arg for arg in args if not arg.startswith("-")]
+    if not urls:
+        print(json.dumps({"status": "error", "message": "Provide at least one URL"}, indent=2))
+        return
+
     if len(urls) == 1:
-        result = scan_competitor(urls[0])
+        result = scan_competitor(urls[0], allow_insecure=allow_insecure)
         print(json.dumps(result, indent=2, default=str))
     else:
-        results = scan_multiple(urls)
+        results = scan_multiple(urls, allow_insecure=allow_insecure)
         print(json.dumps({"competitors": results}, indent=2, default=str))
 
 
